@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime
 from urllib.parse import urljoin
 
@@ -32,7 +33,7 @@ def get_api_key(base_url, client_id, client_secret):
 
 
 def get_products(base_url, api_key):
-    url = urljoin(base_url, '/pcm/products')
+    url = urljoin(base_url, '/v2/products')
     headers = {'Authorization': f'Bearer {api_key}'}
     response = requests.get(url, headers=headers)
     response.raise_for_status()
@@ -123,13 +124,36 @@ def update_customer(base_url, api_key, customer_id, email):
 
 
 def load_menu_moltin(api_key, base_url, file_path):
-    url = urljoin(base_url, '/pcm/products')
+    url = urljoin(base_url, '/v2/products')
     headers = {'Authorization': f'Bearer {api_key}'}
     with open(file_path, 'rb') as file:
         menu = json.load(file)
-
-    response = requests.post(url, headers=headers)
-    response.raise_for_status()
+    for pizza in menu:
+        payload = {
+            "data": {
+                "type": "product",
+                "name": pizza['name'],
+                "slug": f"pizza-{pizza['id']}",
+                "sku": str(pizza['id']),
+                "description": pizza['description'],
+                "manage_stock": False,
+                "price": [
+                    {
+                        "amount": pizza['price'],
+                        "currency": "RUB",
+                        "includes_tax": True
+                    }
+                ],
+                "status": "live",
+                "commodity_type": "physical"
+            }
+        }
+        try:
+            response = requests.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            set_product_image(api_key, base_url, pizza['product_image']['url'], response.json()['data']['id'])
+        except requests.exceptions.HTTPError:
+            logging.exception('Ошибка при загрузке продукта')
 
 
 def load_addresses_moltin(api_key, base_url, file_path):
@@ -140,3 +164,25 @@ def load_addresses_moltin(api_key, base_url, file_path):
 
     response = requests.post(url, headers=headers)
     response.raise_for_status()
+
+
+def set_product_image(api_key, base_url, image_url, product_id):
+    url = urljoin(base_url, '/v2/files')
+    headers = {'Authorization': f'Bearer {api_key}'}
+    files = {
+        'file_location': (None, image_url),
+    }
+    response = requests.post(url, headers=headers, files=files)
+    response.raise_for_status()
+    image_id = response.json()['data']['id']
+    url = urljoin(base_url, f'/v2/products/{product_id}/relationships/main-image')
+    payload = {
+        'data': {
+            'type': 'main_image',
+            'id': image_id,
+        },
+    }
+    response = requests.post(url, headers=headers, json=payload)
+    response.raise_for_status()
+
+
