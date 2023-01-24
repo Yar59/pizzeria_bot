@@ -43,7 +43,10 @@ def get_products(base_url, api_key):
 
 def add_product_to_cart(base_url, api_key, product_id, quantity, user_id):
     url = urljoin(base_url, f'/v2/carts/{user_id}/items')
-    headers = {'Authorization': f'Bearer {api_key}'}
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'X-MOLTIN-CURRENCY': 'RUB',
+    }
     payload = {
         "data": {
             "type": "cart_item",
@@ -52,6 +55,7 @@ def add_product_to_cart(base_url, api_key, product_id, quantity, user_id):
         }
     }
     response = requests.post(url, headers=headers, json=payload)
+    pprint(response.json())
     response.raise_for_status()
     return response.json()
 
@@ -66,7 +70,7 @@ def get_cart(base_url, api_key, user_id):
 
 def get_product(base_url, api_key, product_id):
     headers = {'Authorization': f'Bearer {api_key}'}
-    url = urljoin(base_url, f'/catalog/products/{product_id}')
+    url = urljoin(base_url, f'/v2/products/{product_id}')
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     return response.json()['data']

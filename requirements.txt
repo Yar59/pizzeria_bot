@@ -1,2 +1,5 @@
 requests==2.28.2
 environs==9.5.0
+python-telegram-bot==13.14
+redis==4.4.2
+redis-persistence==0.0.4
