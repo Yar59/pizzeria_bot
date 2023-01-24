@@ -205,7 +205,7 @@ def handle_order(update: Update, context: CallbackContext) -> int:
     query.answer()
 
     if query['data'] == str(Transitions.order):
-        message = 'Пришлите, пожалуйста, вашу электронную почту.'
+        message = 'Пришлите, пожалуйста, вашу геолокацию или адрес текстом.'
 
     keyboard = [
         InlineKeyboardButton('Меню', callback_data=str(Transitions.menu)),
@@ -221,24 +221,47 @@ def handle_order(update: Update, context: CallbackContext) -> int:
     return States.waiting_email
 
 
-def handle_location(update: Update, context: CallbackContext, base_url, api_key) -> int:
+def handle_location(update: Update, context: CallbackContext, base_url, geocoder_api_key) -> int:
     user_id = update.effective_chat.id
-    if '@' in update.message.text:
-        customer_email = update.message.text.strip()
-        message = f'Записал Вашу почту {customer_email}'
-        update.message.reply_text(
-            text=message,
-        )
-        create_customer(base_url, api_key, user_id, message)
+    lon = None
+    lat = None
+    try:
+        lon = update.message.location.longitude
+        lat = update.message.location.latitude
+    except AttributeError:
+        pass
+    if lon and lat:
+        customer_location = (update.message.location.latitude, update.message.location.longitude)
+        message = f'Записал ваши координаты {customer_location}'
         next_state = ConversationHandler.END
-        return next_state
     else:
-        message = 'Это не похоже на почту, попробуйте еще раз.'
-        update.message.reply_text(
-            text=message,
-        )
+        try:
+            customer_location = fetch_coordinates(geocoder_api_key, update.message.text.strip())
+            message = f'Записал ваши координаты {customer_location}'
+            next_state = ConversationHandler.END
+        except requests.exceptions.HTTPError:
+            message = f'Не удалось уточнить координаты по адресу {update.message.text.strip()}'
+            next_state = States.waiting_email
+    update.message.reply_text(
+        text=message,
+    )
+    return next_state
+    # if '@' in update.message.text:
+    #     customer_email = update.message.text.strip()
+    #     message = f'Записал Вашу почту {customer_email}'
+    #     update.message.reply_text(
+    #         text=message,
+    #     )
+    #     # create_customer(base_url, api_key, user_id, message)
+    #     next_state = ConversationHandler.END
+    #     return next_state
+    # else:
+    #     message = 'Это не похоже на почту, попробуйте еще раз.'
+    #     update.message.reply_text(
+    #         text=message,
+    #     )
 
-        return States.waiting_email
+
 
 
 def main():
@@ -258,7 +281,8 @@ def main():
     moltin_client_id = env('MOLTIN_CLIENT_ID')
     moltin_client_secret = env('MOLTIN_CLIENT_SECRET')
     moltin_base_url = env('MOLTIN_BASE_URL')
-    api_key = get_api_key(moltin_base_url, moltin_client_id, moltin_client_secret)
+    geocoder_api_key = env('GEOCODER_API_KEY')
+    moltin_api_key = get_api_key(moltin_base_url, moltin_client_id, moltin_client_secret)
 
     redis_db = redis.Redis(
         host=redis_host,
@@ -277,35 +301,35 @@ def main():
         entry_points=[
             CommandHandler(
                 'start',
-                partial(start, base_url=moltin_base_url, api_key=api_key)
+                partial(start, base_url=moltin_base_url, api_key=moltin_api_key)
             ),
         ],
         states={
             States.handle_menu: [
                 CallbackQueryHandler(
-                    partial(handle_cart, base_url=moltin_base_url, api_key=api_key),
+                    partial(handle_cart, base_url=moltin_base_url, api_key=moltin_api_key),
                     pattern=f'^{Transitions.cart}$'
                 ),
                 CallbackQueryHandler(
-                    partial(handle_menu, base_url=moltin_base_url, api_key=api_key)
-                )
+                    partial(handle_menu, base_url=moltin_base_url, api_key=moltin_api_key)
+                ),
             ],
             States.handle_description: [
                 CallbackQueryHandler(
-                    partial(start, base_url=moltin_base_url, api_key=api_key),
+                    partial(start, base_url=moltin_base_url, api_key=moltin_api_key),
                     pattern=f'^{Transitions.menu}$'
                 ),
                 CallbackQueryHandler(
-                    partial(handle_cart, base_url=moltin_base_url, api_key=api_key),
+                    partial(handle_cart, base_url=moltin_base_url, api_key=moltin_api_key),
                     pattern=f'^{Transitions.cart}$'
                 ),
                 CallbackQueryHandler(
-                    partial(handle_description, base_url=moltin_base_url, api_key=api_key)
-                )
+                    partial(handle_description, base_url=moltin_base_url, api_key=moltin_api_key)
+                ),
             ],
             States.handle_cart: [
                 CallbackQueryHandler(
-                    partial(start, base_url=moltin_base_url, api_key=api_key),
+                    partial(start, base_url=moltin_base_url, api_key=moltin_api_key),
                     pattern=f'^{Transitions.menu}$'
                 ),
                 CallbackQueryHandler(
@@ -313,20 +337,25 @@ def main():
                     pattern=f'^{Transitions.order}$'
                 ),
                 CallbackQueryHandler(
-                    partial(handle_cart, base_url=moltin_base_url, api_key=api_key)
-                )
+                    partial(handle_cart, base_url=moltin_base_url, api_key=moltin_api_key)
+                ),
             ],
             States.waiting_email: [
                 CallbackQueryHandler(
-                    partial(start, base_url=moltin_base_url, api_key=api_key),
+                    partial(start, base_url=moltin_base_url, api_key=moltin_api_key),
                     pattern=f'^{Transitions.menu}$'
                 ),
                 CallbackQueryHandler(
-                    partial(handle_cart, base_url=moltin_base_url, api_key=api_key),
+                    partial(handle_cart, base_url=moltin_base_url, api_key=moltin_api_key),
                     pattern=f'^{Transitions.cart}$'
                 ),
-                MessageHandler(Filters.text, partial(handle_email, base_url=moltin_base_url, api_key=api_key))
-            ]
+                MessageHandler(
+                    Filters.text, partial(handle_location, base_url=moltin_base_url, geocoder_api_key=geocoder_api_key)
+                ),
+                MessageHandler(
+                    Filters.location, partial(handle_location, base_url=moltin_base_url, geocoder_api_key=geocoder_api_key)
+                )
+            ],
         },
         fallbacks=[
             CommandHandler('cancel', partial(cancel)),
