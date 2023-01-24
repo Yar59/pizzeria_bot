@@ -1,6 +1,7 @@
 import json
 import logging
 from datetime import datetime
+from pprint import pprint
 from urllib.parse import urljoin
 
 import requests
@@ -157,13 +158,27 @@ def load_menu_moltin(api_key, base_url, file_path):
 
 
 def load_addresses_moltin(api_key, base_url, file_path):
-    url = urljoin(base_url, '/v2/products')
-    headers = {'Authorization': f'Bearer {api_key}'}
+
     with open(file_path, 'rb') as file:
         addresses = json.load(file)
 
-    response = requests.post(url, headers=headers)
-    response.raise_for_status()
+    url = urljoin(base_url, f'v2/flows/pizzeria/entries')
+    headers = {'Authorization': f'Bearer {api_key}'}
+    for address in addresses:
+        payload = {
+            'data': {
+                'type': 'entry',
+                'Address': address['address']['full'],
+                'Alias': address['alias'],
+                'Longitude': str(address['coordinates']['lon']),
+                'Latitude': str(address['coordinates']['lat']),
+            },
+        }
+        try:
+            response = requests.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+        except requests.exceptions.HTTPError:
+            logging.exception('Ошибка при загрузке адреса')
 
 
 def set_product_image(api_key, base_url, image_url, product_id):
@@ -186,3 +201,45 @@ def set_product_image(api_key, base_url, image_url, product_id):
     response.raise_for_status()
 
 
+def create_flow(api_key, base_url):
+    url = urljoin(base_url, '/v2/flows')
+    headers = {'Authorization': f'Bearer {api_key}'}
+    payload = {
+        'data': {
+            'type': 'flow',
+            'name': 'Pizzeria',
+            'slug': 'pizzeria',
+            'description': 'pizzeria model',
+            'enabled': True,
+        },
+    }
+    response = requests.post(url, headers=headers, json=payload)
+    response.raise_for_status()
+    return response.json()['data']['id']
+
+
+def create_flow_field(api_key, base_url, field_name, flow_id):
+    url = urljoin(base_url, '/v2/fields')
+    headers = {'Authorization': f'Bearer {api_key}'}
+    payload = {
+        'data': {
+            'type': 'field',
+            'name': field_name,
+            'slug': field_name,
+            'field_type': 'string',
+            'description': 'pizzeria field',
+            'required': True,
+            'enabled': True,
+            'relationships': {
+                'flow': {
+                    'data': {
+                        'type': 'flow',
+                        'id': flow_id,
+                    },
+                },
+            },
+        },
+    }
+    response = requests.post(url, headers=headers, json=payload)
+    response.raise_for_status()
+    return response.json()['data']['id']
