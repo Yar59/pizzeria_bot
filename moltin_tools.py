@@ -55,7 +55,6 @@ def add_product_to_cart(base_url, api_key, product_id, quantity, user_id):
         }
     }
     response = requests.post(url, headers=headers, json=payload)
-    pprint(response.json())
     response.raise_for_status()
     return response.json()
 
@@ -227,23 +226,38 @@ def create_flow_field(api_key, base_url, field_name, flow_id):
     headers = {'Authorization': f'Bearer {api_key}'}
     payload = {
         'data': {
-            'type': 'field',
-            'name': field_name,
-            'slug': field_name,
-            'field_type': 'string',
-            'description': 'pizzeria field',
-            'required': True,
+            'type': 'flow',
+            'name': 'Pizzeria',
+            'slug': 'pizzeria',
+            'description': 'pizzeria model',
             'enabled': True,
-            'relationships': {
-                'flow': {
-                    'data': {
-                        'type': 'flow',
-                        'id': flow_id,
-                    },
-                },
-            },
         },
     }
     response = requests.post(url, headers=headers, json=payload)
     response.raise_for_status()
     return response.json()['data']['id']
+
+
+def get_pizzerias(api_key, base_url):
+    url = urljoin(base_url, '/v2/flows/pizzeria/entries')
+    headers = {'Authorization': f'Bearer {api_key}'}
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    return response.json()['data']
+
+
+def save_customer_address(api_key, base_url, lat, lon, customer_id):
+    url = urljoin(base_url, '/v2/flows/customer_address/entries')
+    headers = {'Authorization': f'Bearer {api_key}'}
+    payload = {
+            'data': {
+                'type': 'entry',
+                'lat': lat,
+                'lon': lon,
+                'customer_id': customer_id,
+            },
+        }
+    response = requests.post(url, headers=headers, json=payload)
+    pprint(response.json())
+    response.raise_for_status()
+    return response.json()['data']
