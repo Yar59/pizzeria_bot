@@ -1,7 +1,6 @@
 import json
 import logging
 from datetime import datetime
-from pprint import pprint
 from urllib.parse import urljoin
 
 import requests
@@ -90,14 +89,14 @@ def remove_item_from_cart(base_url, api_key, user_id, product_id):
     response.raise_for_status()
 
 
-def create_customer(base_url, api_key, user_id, email):
+def create_customer(base_url, api_key, user_id):
     headers = {'Authorization': f'Bearer {api_key}'}
     url = urljoin(base_url, '/v2/customers')
     payload = {
         "data": {
             "type": "customer",
             "name": user_id,
-            "email": email,
+            "email": f'{user_id}@plug.com',
         }
     }
     response = requests.post(url, headers=headers, json=payload)
@@ -258,6 +257,5 @@ def save_customer_address(api_key, base_url, lat, lon, customer_id):
             },
         }
     response = requests.post(url, headers=headers, json=payload)
-    pprint(response.json())
     response.raise_for_status()
     return response.json()['data']

@@ -1,5 +1,4 @@
 import argparse
-from pprint import pprint
 
 from environs import Env
 
@@ -16,7 +15,6 @@ from moltin_tools import (
 def main():
     env = Env()
     env.read_env()
-    tg_token = env('TG_TOKEN')
     moltin_client_id = env('MOLTIN_CLIENT_ID')
     moltin_client_secret = env('MOLTIN_CLIENT_SECRET')
     moltin_base_url = env('MOLTIN_BASE_URL')
@@ -31,7 +29,6 @@ def main():
 
     if menu_path:
         load_menu_moltin(api_key, moltin_base_url, menu_path)
-        pprint(get_products(moltin_base_url, api_key))
 
     if args.create_pizzeria_flow:
         flow_id = create_flow(api_key, moltin_base_url)

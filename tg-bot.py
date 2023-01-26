@@ -2,14 +2,13 @@ import logging
 from enum import Enum, auto
 from textwrap import dedent
 from functools import partial
-from pprint import pprint
 
 import redis
 import requests
 from environs import Env
 from geopy import distance
 from redispersistence.persistence import RedisPersistence
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, LabeledPrice
 from telegram.ext import (
     Updater,
     CommandHandler,
@@ -17,7 +16,8 @@ from telegram.ext import (
     Filters,
     ConversationHandler,
     CallbackContext,
-    CallbackQueryHandler
+    CallbackQueryHandler,
+    PreCheckoutQueryHandler,
 )
 
 from moltin_tools import (
@@ -30,7 +30,7 @@ from moltin_tools import (
     remove_item_from_cart,
     create_customer,
     get_pizzerias,
-    save_customer_address
+    save_customer_address,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,7 @@ class States(Enum):
     handle_cart = auto()
     waiting_coordinates = auto()
     waiting_payment = auto()
+    handle_user_reply = auto()
 
 
 class Transitions(Enum):
@@ -53,6 +54,31 @@ class Transitions(Enum):
     payment = auto()
     deliver = auto()
     pickup = auto()
+
+
+def precheckout_callback(update, context):
+    query = update.pre_checkout_query
+    if query.invoice_payload != 'payment-for-pizza':
+        query.answer(ok=False, error_message="Something went wrong...")
+    else:
+        query.answer(ok=True)
+    return States.handle_user_reply
+
+
+def successful_payment_callback(update, context, moltin_base_url, moltin_api_key):
+    user_id = update.effective_chat.id
+    customer_location = context.user_data['order_info']['coordinates']
+    save_customer_address(moltin_api_key, moltin_base_url, customer_location[0], customer_location[1], user_id)
+    create_customer(moltin_base_url, moltin_api_key, user_id)
+    keyboard = [
+        [InlineKeyboardButton('Меню', callback_data='Меню')],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text(
+        'Спасибо за заказ!',
+        reply_markup=reply_markup
+    )
+    return States.handle_menu
 
 
 def fetch_coordinates(apikey, address):
@@ -83,8 +109,7 @@ def send_notification_customer(context):
     text = dedent('''
     Приятного аппетита! *место для рекламы*
     *сообщение что делать если пицца не пришла*
-    '''
-                     )
+    ''')
     bot.send_message(
         text=text,
         chat_id=user_id
@@ -108,13 +133,13 @@ def start(update: Update, context: CallbackContext, base_url, api_key) -> int:
     if query:
         query.answer()
         query.message.reply_text(
-            text='Вусная питса:',
+            text='Вкусная питса:',
             reply_markup=reply_markup
         )
         query.message.delete()
     else:
         update.message.reply_text(
-            text='Вусная питса:',
+            text='Вкусная питса:',
             reply_markup=reply_markup
         )
 
@@ -122,7 +147,6 @@ def start(update: Update, context: CallbackContext, base_url, api_key) -> int:
 
 
 def cancel(update: Update, context: CallbackContext) -> int:
-    user_id = update.effective_chat.id
     update.message.reply_text(
         'Надеюсь тебе понравился наш магазин!'
     )
@@ -133,7 +157,6 @@ def cancel(update: Update, context: CallbackContext) -> int:
 def handle_menu(update: Update, context: CallbackContext, base_url, api_key) -> int:
     query = update.callback_query
     query.answer()
-    user_id = update.effective_chat.id
     product_id = query['data']
     product = get_product(base_url, api_key, product_id)
     image_link = fetch_image(base_url, api_key, product['relationships']['main_image']['data']['id'])
@@ -316,7 +339,7 @@ def handle_location(update: Update, context: CallbackContext, base_url, geocoder
     return next_state
 
 
-def handle_delivery(update: Update, context: CallbackContext, delivery, moltin_base_url, moltin_api_key) -> int:
+def handle_delivery(update: Update, context: CallbackContext, delivery, moltin_base_url, moltin_api_key, payment_token) -> int:
     query = update.callback_query
     query.answer()
 
@@ -339,9 +362,9 @@ def handle_delivery(update: Update, context: CallbackContext, delivery, moltin_b
                         ''')
         )
     delivery_cost = context.user_data["order_info"]["delivery_cost"]
-
+    total_cost += delivery_cost
+    order_info = f'{"".join(items_info)}\nДоставка {delivery_cost}руб.\nК оплате {total_cost} руб.'
     if delivery:
-        order_info = f'{"".join(items_info)}\nДоставка {delivery_cost}руб.\nК оплате {total_cost + delivery_cost} руб.'
 
         context.bot.send_message(context.user_data['order_info']['deliveryman_id'], order_info)
         context.bot.send_location(
@@ -353,17 +376,23 @@ def handle_delivery(update: Update, context: CallbackContext, delivery, moltin_b
     context.job_queue.run_once(send_notification_customer, 3600, context=user_id)
 
     message = f'Всё готово, осталось только оплатить\nК оплате {total_cost + delivery_cost} руб.'
-    keyboard = [
-        InlineKeyboardButton('Оплатить', callback_data=str(Transitions.payment)),
-    ],
-    reply_markup = InlineKeyboardMarkup(keyboard)
+
     query.message.reply_text(
         text=message,
-        reply_markup=reply_markup,
     )
     query.message.delete()
-
-    return States.waiting_coordinates
+    context.bot.send_invoice(
+        chat_id=user_id,
+        title='Оплата заказа из пиццерии',
+        description=order_info,
+        payload='payment-for-pizza',
+        provider_token=payment_token,
+        currency='RUB',
+        need_name=True,
+        need_phone_number=True,
+        prices=[LabeledPrice('Заказ из пиццерии', total_cost * 100)],
+    )
+    return States.handle_user_reply
 
 
 def main():
@@ -384,18 +413,19 @@ def main():
     moltin_client_secret = env('MOLTIN_CLIENT_SECRET')
     moltin_base_url = env('MOLTIN_BASE_URL')
     geocoder_api_key = env('GEOCODER_API_KEY')
+    payment_token = env('PAYMENT_TOKEN')
     moltin_api_key = get_api_key(moltin_base_url, moltin_client_id, moltin_client_secret)
 
     redis_db = redis.Redis(
         host=redis_host,
         port=redis_port,
         db=redis_db,
-        # username=redis_username,
-        # password=redis_password,
+        username=redis_username,
+        password=redis_password,
         decode_responses=True
     )
     persistence = RedisPersistence(redis_db)
-    updater = Updater(token=tg_token)
+    updater = Updater(token=tg_token, persistence=persistence)
 
     dispatcher = updater.dispatcher
 
@@ -477,6 +507,7 @@ def main():
                         delivery=False,
                         moltin_api_key=moltin_api_key,
                         moltin_base_url=moltin_base_url,
+                        payment_token=payment_token,
                     ),
                     pattern=f'^{Transitions.pickup}$'
                 ),
@@ -486,10 +517,18 @@ def main():
                         delivery=True,
                         moltin_api_key=moltin_api_key,
                         moltin_base_url=moltin_base_url,
+                        payment_token=payment_token,
                     ),
                     pattern=f'^{Transitions.deliver}$'
                 ),
-            ]
+            ],
+            States.handle_user_reply: [
+                PreCheckoutQueryHandler(precheckout_callback),
+                MessageHandler(
+                    Filters.successful_payment,
+                    successful_payment_callback
+                ),
+            ],
         },
         fallbacks=[
             CommandHandler('cancel', partial(cancel)),
