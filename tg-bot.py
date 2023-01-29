@@ -20,6 +20,7 @@ from telegram.ext import (
     PreCheckoutQueryHandler,
 )
 
+from distance_handling import fetch_coordinates, get_distance
 from moltin_tools import (
     get_api_key,
     get_products,
@@ -81,27 +82,6 @@ def successful_payment_callback(update, context, moltin_base_url, moltin_api_key
     return States.handle_menu
 
 
-def fetch_coordinates(apikey, address):
-    base_url = "https://geocode-maps.yandex.ru/1.x"
-    response = requests.get(base_url, params={
-        "geocode": address,
-        "apikey": apikey,
-        "format": "json",
-    })
-    response.raise_for_status()
-    found_places = response.json()["response"]["GeoObjectCollection"]["featureMember"]
-
-    if not found_places:
-        raise requests.exceptions.RequestException
-
-    most_relevant = found_places[0]
-    lon, lat = most_relevant["GeoObject"]["Point"]["pos"].split(" ")
-    return lat, lon
-
-
-def get_distance(pizzeria):
-    return pizzeria['distance']
-
 
 def send_notification_customer(context):
     bot = context.bot
@@ -115,7 +95,7 @@ def send_notification_customer(context):
         chat_id=user_id
     )
 
-
+    
 def start(update: Update, context: CallbackContext, base_url, api_key) -> int:
     query = update.callback_query
 
