@@ -1,12 +1,12 @@
 import argparse
-
+import logging
+import requests
 from environs import Env
 
 from moltin_tools import (
     load_menu_moltin,
     load_addresses_moltin,
     get_api_key,
-    get_products,
     create_flow,
     create_flow_field
 )
@@ -28,7 +28,10 @@ def main():
     addresses_path = args.load_addresses
 
     if menu_path:
-        load_menu_moltin(api_key, moltin_base_url, menu_path)
+        try:
+            load_menu_moltin(api_key, moltin_base_url, menu_path)
+        except requests.exceptions.HTTPError:
+            logging.exception('Ошибка при загрузке продукта')
 
     if args.create_pizzeria_flow:
         flow_id = create_flow(api_key, moltin_base_url)
@@ -42,8 +45,11 @@ def main():
             create_flow_field(api_key, moltin_base_url, field, flow_id)
 
     if addresses_path:
-        load_addresses_moltin(api_key, moltin_base_url, addresses_path)
-
+        try:
+            load_addresses_moltin(api_key, moltin_base_url, addresses_path)
+        except requests.exceptions.HTTPError:
+            logging.exception('Ошибка при загрузке адреса')
+            
 
 if __name__ == '__main__':
     main()

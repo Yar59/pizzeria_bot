@@ -151,12 +151,9 @@ def load_menu_moltin(api_key, base_url, file_path):
                 "commodity_type": "physical"
             }
         }
-        try:
-            response = requests.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            set_product_image(api_key, base_url, pizza['product_image']['url'], response.json()['data']['id'])
-        except requests.exceptions.HTTPError:
-            logging.exception('Ошибка при загрузке продукта')
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        set_product_image(api_key, base_url, pizza['product_image']['url'], response.json()['data']['id'])
 
 
 def load_addresses_moltin(api_key, base_url, file_path):
@@ -176,11 +173,9 @@ def load_addresses_moltin(api_key, base_url, file_path):
                 'Latitude': str(address['coordinates']['lat']),
             },
         }
-        try:
-            response = requests.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-        except requests.exceptions.HTTPError:
-            logging.exception('Ошибка при загрузке адреса')
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+
 
 
 def set_product_image(api_key, base_url, image_url, product_id):
